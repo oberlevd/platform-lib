@@ -1,0 +1,42 @@
+pre-commit:
+  parallel: true # Запускать команды параллельно для скорости
+  commands:
+    # 1. Форматирование кода
+    format:
+      glob: "*.go" # Применять только к Go-файлам
+      run: gofmt -w {staged_files} # Форматировать все подготовленные файлы
+      stage_fixed: true # Добавить исправленные файлы обратно в коммит
+
+    # 2. Линтинг и авто-исправление
+    golangci-lint:
+      glob: "*.go"
+      run: golangci-lint run --fix --new-from-rev HEAD~1 {staged_files}
+      stage_fixed: true
+
+    # 3. Базовые проверки компилятором
+    vet:
+      glob: "*.go"
+      run: go vet {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    # 1. Запуск всех тестов
+    test:
+      run: go test -race -count=1 ./... # Запуск тестов с детектором гонок
+
+    # 2. Полная проверка линтером всего проекта
+    lint:
+      run: golangci-lint run ./...
+
+    # 3. Проверка на уязвимости
+    govulncheck:
+      run: govulncheck ./...
+
+commit-msg:
+  commands:
+    # Проверка соответствия сообщений коммита стандарту Conventional Commits
+    conventional:
+      run: |
+        MSG=$(head -1 {1})
+        echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+' || (echo "❌ КОММИТ С НЕКОРРЕКТНЫМ ФОРМАТОМ" && exit 1)
