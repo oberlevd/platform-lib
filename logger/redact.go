@@ -21,9 +21,6 @@ var baseRedactKeys = []string{
 	"private_key",
 	"connection_string",
 	"conn_str",
-	"card_number",
-	"cvv",
-	"ssn",
 }
 
 const redactedPlaceholder = "***REDACTED***"
