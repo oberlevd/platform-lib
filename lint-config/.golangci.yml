@@ -1,0 +1,53 @@
+version: "2"
+
+linters:
+  default: standard # standard-набор + явно перечисленное ниже, не "all"
+  enable:
+    # Баги и корректность — то, что реально ловит проблемы в проде.
+    - bodyclose # незакрытые http response body
+    - contextcheck # context не прокинут дальше по цепочке
+    - errorlint # неправильная работа с обёрнутыми ошибками (errors.Is/As)
+    - nilerr # return nil при наличии err
+    - rowserrcheck # не проверили err после sql rows.Next()
+    - sqlclosecheck # не закрыли *sql.Rows / *sql.Stmt — критично при работе с MSSQL
+    - sqlrows # rows.Err() не проверен
+    - unparam # неиспользуемые параметры функций
+    - gosec # security-линтер: hardcoded creds, SQL injection паттерны и т.д.
+
+    # Стиль и поддерживаемость.
+    - goconst # повторяющиеся строковые литералы -> вынести в константу
+    - gocritic
+    - whitespace
+
+  settings:
+    gosec:
+      excludes:
+        - G104 # unhandled errors — за это отвечает errcheck отдельно
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+  exclusions:
+    rules:
+      # В тестах не требуем той же строгости к дублированию строк и т.д.
+      - path: _test\.go
+        linters:
+          - goconst
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/oberlevd
+
+run:
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
