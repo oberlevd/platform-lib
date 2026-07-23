@@ -1,4 +1,4 @@
-module github.com/yourorg/platform-lib
+module github.com/oberlevd/platform-lib
 
 go 1.22.2
 
