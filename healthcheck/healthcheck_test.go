@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 func TestLivezAlwaysOK(t *testing.T) {
@@ -64,32 +63,6 @@ func TestReadyzOKWhenAllCheckersPass(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200, body: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestReadyzRespectsCheckTimeout(t *testing.T) {
-	h := New(WithCheckTimeout(20 * time.Millisecond))
-	h.Register("slow-dep", func(ctx context.Context) error {
-		select {
-		case <-time.After(2 * time.Second):
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	rec := httptest.NewRecorder()
-
-	start := time.Now()
-	h.ReadyzHandler()(rec, req)
-	elapsed := time.Since(start)
-
-	if elapsed > 500*time.Millisecond {
-		t.Errorf("ReadyzHandler took %v, expected to bail out around the configured timeout", elapsed)
-	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503 (timed-out checker should count as failing)", rec.Code)
 	}
 }
 

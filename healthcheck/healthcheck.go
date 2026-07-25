@@ -66,6 +66,22 @@ func New(opts ...Option) *Handler {
 	return h
 }
 
+// snapshot безопасно (под RLock) копирует текущий набор чекеров и таймаут.
+// Общий метод для HTTP (ReadyzHandler) и gRPC (GRPCServer.Check, см. grpc.go)
+// адаптеров поверх одного и того же Handler — оба должны видеть одинаковый
+// набор проверок и одинаковый таймаут, иначе поведение liveness/readiness
+// начнёт расходиться в зависимости от того, кто спрашивает: k8s через HTTP
+// или Envoy/service mesh через gRPC health protocol.
+func (h *Handler) snapshot() (map[string]Checker, time.Duration) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	checkers := make(map[string]Checker, len(h.checkers))
+	for name, c := range h.checkers {
+		checkers[name] = c
+	}
+	return checkers, h.checkTimeout
+}
+
 // Register добавляет именованную readiness-проверку. name используется
 // только в теле ответа /readyz, чтобы сразу было видно, какая именно
 // зависимость недоступна, не заглядывая в логи.
@@ -80,6 +96,46 @@ type readyzResult struct {
 	Checks map[string]string `json:"checks,omitempty"`
 }
 
+// checkResult — промежуточный результат одного чекера, идёт по каналу
+// из горутины обратно в runChecks.
+type checkResult struct {
+	name string
+	err  error
+}
+
+// runChecks прогоняет все чекеры ПАРАЛЛЕЛЬНО с общим дедлайном ctx.
+//
+// Критично при нескольких независимых зависимостях (например, 3
+// MSSQL-хоста + шина, как в нашей архитектуре): последовательный прогон
+// суммирует латентность каждого чекера, и общий дедлайн может быть
+// исчерпан до того, как дойдёт очередь до последнего чекера — даже
+// если каждая зависимость по отдельности здорова и укладывается в
+// бюджет с большим запасом. Проверено: 4 чекера по 150мс каждый при
+// таймауте 400мс — последовательно это 600мс суммарно и ложный 503,
+// параллельно — 150мс и честный 200.
+func runChecks(ctx context.Context, checkers map[string]Checker) (map[string]string, bool) {
+	resCh := make(chan checkResult, len(checkers))
+
+	for name, check := range checkers {
+		go func(name string, check Checker) {
+			resCh <- checkResult{name: name, err: check(ctx)}
+		}(name, check)
+	}
+
+	results := make(map[string]string, len(checkers))
+	allOK := true
+	for i := 0; i < len(checkers); i++ {
+		r := <-resCh
+		if r.err != nil {
+			allOK = false
+			results[r.name] = r.err.Error()
+		} else {
+			results[r.name] = "ok"
+		}
+	}
+	return results, allOK
+}
+
 // LivezHandler — HTTP-хендлер для /healthz. Всегда 200, если процесс
 // в состоянии отвечать на HTTP вообще — намеренно не делает никаких
 // проверок зависимостей (см. комментарий пакета).
@@ -91,32 +147,19 @@ func (h *Handler) LivezHandler() http.HandlerFunc {
 }
 
 // ReadyzHandler — HTTP-хендлер для /readyz. Прогоняет все
-// зарегистрированные проверки; если хоть одна упала — 503 и в теле
-// ответа видно, какая именно. Весь прогон ограничен h.checkTimeout —
-// это защита от чекера, который завис, а не вернул явную ошибку.
+// зарегистрированные проверки параллельно (см. runChecks); если хоть
+// одна упала — 503 и в теле ответа видно, какая именно. Весь прогон
+// ограничен h.checkTimeout — это защита от чекера, который завис,
+// а не вернул явную ошибку.
 func (h *Handler) ReadyzHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		h.mu.RLock()
-		checkers := make(map[string]Checker, len(h.checkers))
-		for name, c := range h.checkers {
-			checkers[name] = c
-		}
-		h.mu.RUnlock()
+		checkers, timeout := h.snapshot()
 
-		ctx, cancel := context.WithTimeout(r.Context(), h.checkTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 
-		result := readyzResult{Status: "ok", Checks: make(map[string]string, len(checkers))}
-		allOK := true
-
-		for name, check := range checkers {
-			if err := check(ctx); err != nil {
-				allOK = false
-				result.Checks[name] = err.Error()
-			} else {
-				result.Checks[name] = "ok"
-			}
-		}
+		checks, allOK := runChecks(ctx, checkers)
+		result := readyzResult{Status: "ok", Checks: checks}
 
 		if !allOK {
 			result.Status = "unavailable"

@@ -26,28 +26,42 @@ var baseRedactKeys = []string{
 const redactedPlaceholder = "***REDACTED***"
 
 // valuePatterns ловит секреты, спрятанные ВНУТРИ значения под безобидным
-// ключом — например, кто-то залогирует целиком DSN или сырой SQL под
-// ключом "query"/"dsn"/"error", и в нём окажется "password=...". Матчинг
-// по имени ключа (redactor.matches) в этом случае не сработает, поэтому
-// это отдельный, более грубый уровень защиты: ищем в строковых значениях
-// последовательности вида "ключ=значение", где ключ похож на секрет, и
-// маскируем только значение, оставляя остальной текст читаемым.
+// ключом — например, кто-то залогирует целиком DSN, сырой SQL или JSON-тело
+// ответа от внешнего сервиса под ключом "query"/"dsn"/"error"/"response",
+// и внутри окажется "password=..." или `"password":"..."`. Матчинг по
+// имени ключа (redactor.matches) в этом случае не сработает, поэтому это
+// отдельный, более грубый уровень защиты: ищем в строковых значениях
+// характерные последовательности и маскируем только сам секрет, оставляя
+// остальной текст читаемым.
+//
+// Два формата на входе:
+//   - "key=value" (DSN, query-string, connection string) — kvPattern.
+//   - `"key":"value"` (сериализованный JSON, например залогированное
+//     целиком тело ответа внешнего API) — jsonPattern.
 //
 // Это защита "на всякий случай", а не замена дисциплины — не логируйте
-// сырые connection string и SQL с параметрами целиком, если можно этого
-// избежать.
+// сырые connection string, SQL с параметрами или JSON-тела целиком, если
+// можно этого избежать.
 var valuePatterns = []*regexp.Regexp{
+	// key=value, разделители по краям — ; & пробел или конец строки.
 	regexp.MustCompile(`(?i)(password|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\s*=\s*[^;&\s"']+`),
+	// "key":"value" — сериализованный JSON с тем же секретом внутри строки.
+	regexp.MustCompile(`(?i)"(password|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)"\s*:\s*"[^"]*"`),
 }
 
 func redactValuePatterns(s string) string {
 	for _, re := range valuePatterns {
 		s = re.ReplaceAllStringFunc(s, func(match string) string {
-			idx := strings.IndexByte(match, '=')
-			if idx == -1 {
-				return redactedPlaceholder
+			// Для key=value: маскируем всё после первого "=".
+			if idx := strings.IndexByte(match, '='); idx != -1 && !strings.Contains(match, `":`) {
+				return match[:idx+1] + redactedPlaceholder
 			}
-			return match[:idx+1] + redactedPlaceholder
+			// Для "key":"value": сохраняем "key": и открывающую/закрывающую
+			// кавычку значения, маскируем содержимое между ними.
+			if idx := strings.Index(match, `":`); idx != -1 {
+				return match[:idx+2] + `"` + redactedPlaceholder + `"`
+			}
+			return redactedPlaceholder
 		})
 	}
 	return s
