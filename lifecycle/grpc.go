@@ -2,10 +2,10 @@ package lifecycle
 
 import "context"
 
-// gracefulStopper — минимальный интерфейс, которому удовлетворяет
+// gracefulStopper - минимальный интерфейс, которому удовлетворяет
 // *grpc.Server. Выделен отдельно (вместо принятия конкретного типа),
 // чтобы GRPCServerShutdown можно было протестировать без поднятия
-// настоящего gRPC-сервера — см. lifecycle/grpc_test.go.
+// настоящего gRPC-сервера - см. lifecycle/grpc_test.go.
 type gracefulStopper interface {
 	GracefulStop()
 	Stop()
@@ -14,7 +14,7 @@ type gracefulStopper interface {
 // GRPCServerShutdown возвращает ShutdownFunc для *grpc.Server: пытается
 // GracefulStop (дожидается завершения in-flight запросов и сам
 // перестаёт принимать новые), но GracefulStop ничего не знает про
-// context — это блокирующий вызов без таймаута. Если он не укладывается
+// context - это блокирующий вызов без таймаута. Если он не укладывается
 // в дедлайн переданного в ShutdownFunc контекста, GRPCServerShutdown
 // принудительно вызывает Stop(), чтобы не превысить общий бюджет
 // времени на shutdown сервиса (см. lifecycle.Manager.Run).

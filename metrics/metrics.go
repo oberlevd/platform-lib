@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// RED — набор метрик, регистрируемых один раз в main() сервиса.
+// RED - набор метрик, регистрируемых один раз в main() сервиса.
 type RED struct {
 	RequestsTotal    *prometheus.CounterVec
 	RequestDuration  *prometheus.HistogramVec

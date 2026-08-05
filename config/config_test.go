@@ -183,7 +183,7 @@ func TestRedactedHandlesNilPointer(t *testing.T) {
 func TestRedactedIgnoresFieldsWithoutEnvTag(t *testing.T) {
 	type withUntagged struct {
 		Tracked   string `env:"TEST_REDACT_TRACKED"`
-		Untracked string // без env-тега и не структура — не должно попасть в вывод
+		Untracked string // без env-тега и не структура - не должно попасть в вывод
 	}
 	c := withUntagged{Tracked: "a", Untracked: "b"}
 
@@ -204,7 +204,7 @@ type nestedDBConfig struct {
 
 type outerConfigWithNested struct {
 	ServiceName string         `env:"TEST_OUTER_SERVICE_NAME" default:"svc"`
-	DB          nestedDBConfig // без своего env-тега — должно обработаться рекурсивно
+	DB          nestedDBConfig // без своего env-тега - должно обработаться рекурсивно
 }
 
 func TestLoadRecursesIntoNestedStruct(t *testing.T) {
@@ -228,7 +228,7 @@ func TestLoadRecursesIntoNestedStruct(t *testing.T) {
 }
 
 func TestLoadNestedStructRequiredFieldMissing(t *testing.T) {
-	// TEST_NESTED_DB_HOST/PASSWORD не заданы — required-поле внутри
+	// TEST_NESTED_DB_HOST/PASSWORD не заданы - required-поле внутри
 	// вложенной структуры должно всё равно приводить к ошибке Load.
 	var cfg outerConfigWithNested
 	err := Load(&cfg)

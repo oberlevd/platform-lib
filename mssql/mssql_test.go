@@ -20,7 +20,7 @@ func testConfig() Config {
 		ConnMaxLifetime: 5 * time.Minute,
 		ConnectTimeout:  5 * time.Second,
 		// RetryAttempts/RetryBaseDelay/RetryMaxDelay намеренно не
-		// заданы в большинстве тестов — effectiveRetryAttempts()
+		// заданы в большинстве тестов - effectiveRetryAttempts()
 		// падает на 1 попытку, сохраняя старое быстрое поведение
 		// тестов, которым retry не нужен.
 	}
@@ -160,7 +160,7 @@ func TestBackoffDelayBounds(t *testing.T) {
 	}
 }
 
-// sqlOpenOnly — тестовый хелпер, открывающий *sql.DB без PingContext
+// sqlOpenOnly - тестовый хелпер, открывающий *sql.DB без PingContext
 // (в отличие от Open), чтобы отдельно проверить поведение Checker.
 func sqlOpenOnly(cfg Config) (*sql.DB, error) {
 	return sql.Open("sqlserver", cfg.dsn())

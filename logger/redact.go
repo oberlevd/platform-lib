@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// baseRedactKeys — набор имён полей, которые считаются чувствительными
+// baseRedactKeys - набор имён полей, которые считаются чувствительными
 // по умолчанию во всех сервисах платформы. Сравнение регистронезависимое
 // и по подстроке (см. redactor.matches), чтобы ловить варианты вроде
 // "AccessToken", "access_token", "user_password" и т.д.
@@ -26,7 +26,7 @@ var baseRedactKeys = []string{
 const redactedPlaceholder = "***REDACTED***"
 
 // valuePatterns ловит секреты, спрятанные ВНУТРИ значения под безобидным
-// ключом — например, кто-то залогирует целиком DSN, сырой SQL или JSON-тело
+// ключом - например, кто-то залогирует целиком DSN, сырой SQL или JSON-тело
 // ответа от внешнего сервиса под ключом "query"/"dsn"/"error"/"response",
 // и внутри окажется "password=..." или `"password":"..."`. Матчинг по
 // имени ключа (redactor.matches) в этом случае не сработает, поэтому это
@@ -35,17 +35,17 @@ const redactedPlaceholder = "***REDACTED***"
 // остальной текст читаемым.
 //
 // Два формата на входе:
-//   - "key=value" (DSN, query-string, connection string) — kvPattern.
+//   - "key=value" (DSN, query-string, connection string) - kvPattern.
 //   - `"key":"value"` (сериализованный JSON, например залогированное
-//     целиком тело ответа внешнего API) — jsonPattern.
+//     целиком тело ответа внешнего API) - jsonPattern.
 //
-// Это защита "на всякий случай", а не замена дисциплины — не логируйте
+// Это защита "на всякий случай", а не замена дисциплины - не логируйте
 // сырые connection string, SQL с параметрами или JSON-тела целиком, если
 // можно этого избежать.
 var valuePatterns = []*regexp.Regexp{
-	// key=value, разделители по краям — ; & пробел или конец строки.
+	// key=value, разделители по краям - ; & пробел или конец строки.
 	regexp.MustCompile(`(?i)(password|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)\s*=\s*[^;&\s"']+`),
-	// "key":"value" — сериализованный JSON с тем же секретом внутри строки.
+	// "key":"value" - сериализованный JSON с тем же секретом внутри строки.
 	regexp.MustCompile(`(?i)"(password|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)"\s*:\s*"[^"]*"`),
 }
 
@@ -91,9 +91,9 @@ func (r *redactor) matches(key string) bool {
 }
 
 // replaceAttr используется как часть slog.HandlerOptions.ReplaceAttr.
-// Маскирует значение атрибута, если имя ключа похоже на чувствительное —
+// Маскирует значение атрибута, если имя ключа похоже на чувствительное -
 // в этом случае всё значение целиком заменяется плейсхолдером. Если имя
-// ключа не совпало, но значение — строка, дополнительно прогоняем её
+// ключа не совпало, но значение - строка, дополнительно прогоняем её
 // через valuePatterns на случай встроенного секрета (см. комментарий
 // к valuePatterns). Обходит вложенные группы (slog.Group), т.к. в них
 // тоже могут быть секреты (например, domain_fields.db_password).
