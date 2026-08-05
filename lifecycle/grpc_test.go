@@ -57,7 +57,7 @@ func TestGRPCServerShutdownForcesStopOnTimeout(t *testing.T) {
 	}
 
 	// GracefulStop работает в отдельной горутине и может ещё не успеть
-	// дойти до Stop() ровно в момент возврата shutdown() — даём небольшой
+	// дойти до Stop() ровно в момент возврата shutdown() - даём небольшой
 	// запас, прежде чем проверять, что принудительная остановка произошла.
 	deadline := time.Now().Add(200 * time.Millisecond)
 	for !fake.wasStopped() && time.Now().Before(deadline) {

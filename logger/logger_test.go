@@ -93,7 +93,7 @@ func TestLoggerRedactsSecretsEmbeddedInValues(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	// Ключ "dsn" сам по себе не входит в redact-список — секрет
+	// Ключ "dsn" сам по себе не входит в redact-список - секрет
 	// прячется внутри значения, а не в имени поля.
 	l.Info(ctx, "mssql connection attempt",
 		"dsn", "Server=mssql-orders-01;Password=abc123;User Id=sa;",
@@ -117,7 +117,7 @@ func TestLoggerRedactsSecretsEmbeddedInValues(t *testing.T) {
 }
 
 func TestFromContextFallsBackToDefault(t *testing.T) {
-	// Логгер не был положен в контекст — FromContext не должен паниковать
+	// Логгер не был положен в контекст - FromContext не должен паниковать
 	// и должен вернуть рабочий default logger.
 	l := FromContext(context.Background())
 	if l == nil {

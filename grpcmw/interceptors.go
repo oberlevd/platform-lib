@@ -1,6 +1,6 @@
 // Package grpcmw содержит стандартные gRPC unary interceptor'ы платформы:
 // request_id, логирование каждого вызова, RED-метрики и recovery от паники.
-// Порядок подключения важен — см. пример в конце файла.
+// Порядок подключения важен - см. пример в конце файла.
 package grpcmw
 
 import (
@@ -37,7 +37,7 @@ func RequestIDUnaryInterceptor() grpc.UnaryServerInterceptor {
 }
 
 // LoggingUnaryInterceptor логирует каждый вызов: метод, статус, длительность,
-// request_id. Кладёт в контекст логгер, обогащённый этими же полями —
+// request_id. Кладёт в контекст логгер, обогащённый этими же полями -
 // хендлеры сервиса получают через logger.FromContext(ctx) логгер, где
 // request_id и method уже проставлены, ничего прокидывать вручную не надо.
 func LoggingUnaryInterceptor(base *logger.Logger) grpc.UnaryServerInterceptor {
@@ -82,10 +82,10 @@ func LoggingUnaryInterceptor(base *logger.Logger) grpc.UnaryServerInterceptor {
 // ВАЖНО про порядок: этот интерцептор должен идти СНАРУЖИ (раньше)
 // RecoveryUnaryInterceptor в цепочке (см. Chain ниже). Если поставить
 // его после Recovery (то есть ближе к хендлеру), паника из хендлера
-// развернёт стек мимо строк после handler(ctx, req) — счётчики
+// развернёт стек мимо строк после handler(ctx, req) - счётчики
 // RequestsTotal/RequestDuration для паникующих вызовов просто не
 // выполнятся, останется только Dec() из defer. Именно в таком (неверном)
-// порядке пакет был написан изначально — баг, поправлено здесь.
+// порядке пакет был написан изначально - баг, поправлено здесь.
 func MetricsUnaryInterceptor(m *platformmetrics.RED) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context,
@@ -111,9 +111,9 @@ func MetricsUnaryInterceptor(m *platformmetrics.RED) grpc.UnaryServerInterceptor
 // RecoveryUnaryInterceptor перехватывает панику в хендлере, логирует её
 // и возвращает клиенту codes.Internal вместо падения всего процесса.
 // Должен идти ПОСЛЕ logging- и metrics-интерцепторов в цепочке (см.
-// Chain ниже) — то есть быть ближе всех к реальному хендлеру. Тогда
+// Chain ниже) - то есть быть ближе всех к реальному хендлеру. Тогда
 // паника гасится здесь и наружу (в Metrics) уходит уже обычная пара
-// (resp, err), а не паника — и метрики по паникующим вызовам считаются
+// (resp, err), а не паника - и метрики по паникующим вызовам считаются
 // корректно.
 func RecoveryUnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(
@@ -136,14 +136,14 @@ func RecoveryUnaryInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// Chain — порядок подключения по умолчанию. Собирает все стандартные
+// Chain - порядок подключения по умолчанию. Собирает все стандартные
 // interceptor'ы в правильном порядке:
-//  1. RequestID   — генерирует/принимает request_id первым делом.
-//  2. Logging     — кладёт в контекст обогащённый логгер.
-//  3. Metrics     — считает RED-метрики, включая вызовы, упавшие с
-//     паникой (важно для корректности Error Rate) — это работает,
+//  1. RequestID   - генерирует/принимает request_id первым делом.
+//  2. Logging     - кладёт в контекст обогащённый логгер.
+//  3. Metrics     - считает RED-метрики, включая вызовы, упавшие с
+//     паникой (важно для корректности Error Rate) - это работает,
 //     только если Metrics стоит СНАРУЖИ Recovery, как здесь.
-//  4. Recovery    — ловит панику ближе всех к хендлеру, используя уже
+//  4. Recovery    - ловит панику ближе всех к хендлеру, используя уже
 //     готовый логгер; превращает панику в обычный error до того, как
 //     он дойдёт до Metrics.
 func Chain(base *logger.Logger, m *platformmetrics.RED) grpc.ServerOption {
@@ -155,10 +155,10 @@ func Chain(base *logger.Logger, m *platformmetrics.RED) grpc.ServerOption {
 	)
 }
 
-// requestIDMetadataKey — имя заголовка, через который request_id
+// requestIDMetadataKey - имя заголовка, через который request_id
 // прокидывается между сервисами. Если gateway или BFF на фронте уже
 // сгенерировал id выше по цепочке, читаем его здесь вместо генерации
-// нового — тогда один и тот же id виден сквозь всю цепочку вызовов
+// нового - тогда один и тот же id виден сквозь всю цепочку вызовов
 // в Kibana.
 const requestIDMetadataKey = "x-request-id"
 

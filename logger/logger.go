@@ -5,7 +5,7 @@
 //
 // Дизайн-принципы:
 //   - Всегда JSON в stdout. Никаких файлов, никаких прямых сетевых
-//     appender'ов в ELK — доставку логов делает агент на ноде
+//     appender'ов в ELK - доставку логов делает агент на ноде
 //     (Vector), а не сам процесс.
 //   - Обязательные поля (service, version, env) прибиваются один раз
 //     при инициализации и присутствуют в каждой строке лога.
@@ -22,25 +22,25 @@ import (
 	"os"
 )
 
-// Config — параметры инициализации логгера сервиса.
+// Config - параметры инициализации логгера сервиса.
 type Config struct {
-	// Service — имя сервиса, попадает в каждую строку лога.
+	// Service - имя сервиса, попадает в каждую строку лога.
 	Service string
-	// Version — версия/git-sha сборки.
+	// Version - версия/git-sha сборки.
 	Version string
-	// Env — окружение: dev/staging/prod.
+	// Env - окружение: dev/staging/prod.
 	Env string
-	// Level — минимальный уровень логирования. По умолчанию Info.
+	// Level - минимальный уровень логирования. По умолчанию Info.
 	Level slog.Level
-	// Output — куда писать логи. По умолчанию os.Stdout.
+	// Output - куда писать логи. По умолчанию os.Stdout.
 	// Параметр существует в основном для тестов.
 	Output io.Writer
-	// RedactKeys — дополнительные имена полей, которые нужно маскировать,
+	// RedactKeys - дополнительные имена полей, которые нужно маскировать,
 	// помимо базового набора (см. redact.go).
 	RedactKeys []string
 }
 
-// Logger — обёртка над *slog.Logger с платформенными хелперами.
+// Logger - обёртка над *slog.Logger с платформенными хелперами.
 type Logger struct {
 	base *slog.Logger
 }
@@ -59,7 +59,7 @@ func New(cfg Config) *Logger {
 		Level: cfg.Level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			// Приводим ключ времени к единому имени "timestamp",
-			// чтобы во всех сервисах поле называлось одинаково —
+			// чтобы во всех сервисах поле называлось одинаково -
 			// это важно для index mapping в Elasticsearch.
 			if a.Key == slog.TimeKey && len(groups) == 0 {
 				a.Key = "timestamp"
@@ -80,7 +80,7 @@ func New(cfg Config) *Logger {
 	return &Logger{base: base}
 }
 
-// ctxKey — приватный тип для ключей контекста, чтобы избежать коллизий
+// ctxKey - приватный тип для ключей контекста, чтобы избежать коллизий
 // с ключами из других пакетов.
 type ctxKey struct{ name string }
 
@@ -95,7 +95,7 @@ func WithContext(ctx context.Context, l *Logger) context.Context {
 
 // FromContext достаёт логгер из контекста. Если логгера в контексте нет
 // (например, забыли прокинуть, или это фоновая задача без входящего
-// запроса), возвращает logger.Default() — чтобы код никогда не падал
+// запроса), возвращает logger.Default() - чтобы код никогда не падал
 // из-за отсутствия логгера, но проблема была видна по логам без service/env.
 func FromContext(ctx context.Context) *Logger {
 	if l, ok := ctx.Value(loggerCtxKey).(*Logger); ok {
@@ -124,7 +124,7 @@ func (l *Logger) Warn(ctx context.Context, msg string, args ...any) {
 }
 
 // Error логирует ошибку. err передаётся отдельным аргументом и кладётся
-// в поле "error" как строка — если err == nil, поле не добавляется.
+// в поле "error" как строка - если err == nil, поле не добавляется.
 func (l *Logger) Error(ctx context.Context, msg string, err error, args ...any) {
 	if err != nil {
 		args = append(args, slog.String("error", err.Error()))
@@ -132,8 +132,8 @@ func (l *Logger) Error(ctx context.Context, msg string, err error, args ...any) 
 	l.base.ErrorContext(ctx, msg, args...)
 }
 
-// defaultLogger — фолбэк для случаев, когда контекст без логгера.
-// Уровень Info, вывод в stdout, но без service/version/env — так
+// defaultLogger - фолбэк для случаев, когда контекст без логгера.
+// Уровень Info, вывод в stdout, но без service/version/env - так
 // в Kibana сразу видно "потерянный" контекст логирования.
 var defaultLogger = New(Config{
 	Service: "unknown",
