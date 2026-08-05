@@ -53,5 +53,5 @@ func (s *GRPCServer) Check(ctx context.Context, req *grpc_health_v1.HealthCheckR
 // достаточен для наших SLA) - явно возвращаем Unimplemented, а не
 // молча зависаем, чтобы клиент сразу понял, что нужно использовать Check.
 func (s *GRPCServer) Watch(req *grpc_health_v1.HealthCheckRequest, stream grpc_health_v1.Health_WatchServer) error {
- status.Error(codes.Unimplemented, "Watch is not supported, use Check")
+  return status.Error(codes.Unimplemented, "Watch is not supported, use Check")
 }
