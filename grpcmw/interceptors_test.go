@@ -47,6 +47,8 @@ func runInterceptor(
 	return interceptor(ctx, struct{}{}, unaryInfo(), handler)
 }
 
+// chainInterceptors имитирует grpc.ChainUnaryInterceptor: первый в списке
+// - самый внешний (вызывается первым на входе).
 func chainInterceptors(interceptors ...grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		build := handler

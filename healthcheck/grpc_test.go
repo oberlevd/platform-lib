@@ -17,6 +17,8 @@ import (
 
 const healthBufSize = 1024 * 1024
 
+// startHealthGRPC поднимает in-memory gRPC-сервер с GRPCServer поверх
+// переданного Handler и возвращает клиент + cleanup.
 func startHealthGRPC(t *testing.T, h *Handler) (grpc_health_v1.HealthClient, func()) {
 	t.Helper()
 	lis := bufconn.Listen(healthBufSize)
@@ -91,12 +93,15 @@ func TestGRPCCheckNotServingWhenCheckerFails(t *testing.T) {
 	}
 }
 
+// Service name в запросе игнорируется: сервер отвечает за процесс целиком.
 func TestGRPCCheckIgnoresServiceName(t *testing.T) {
 	h := New()
 	h.Register("db", func(ctx context.Context) error { return nil })
 	client, cleanup := startHealthGRPC(t, h)
 	defer cleanup()
-	resp, err := client.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{Service: "orders.OrderService"})
+	resp, err := client.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{
+		Service: "orders.OrderService",
+	})
 	if err != nil {
 		t.Fatalf("Check: %v", err)
 	}
@@ -119,6 +124,8 @@ func TestGRPCWatchUnimplemented(t *testing.T) {
 	}
 }
 
+// Зависший checker должен упереться в checkTimeout Handler'а, а не
+// держать RPC до таймаута клиента/k8s.
 func TestGRPCCheckRespectsTimeout(t *testing.T) {
 	h := New(WithCheckTimeout(50 * time.Millisecond))
 	h.Register("slow", func(ctx context.Context) error {
@@ -142,5 +149,23 @@ func TestGRPCCheckRespectsTimeout(t *testing.T) {
 	}
 	if elapsed > 500*time.Millisecond {
 		t.Fatalf("Check took %v, expected to fail fast under check timeout", elapsed)
+	}
+}
+
+// HTTP /readyz и gRPC Check должны видеть один и тот же набор checkers
+// через snapshot - иначе поведение readiness разъедется между k8s и mesh.
+func TestGRPCandHTTPReadyzSameOutcome(t *testing.T) {
+	h := New()
+	h.Register("dep", func(ctx context.Context) error {
+		return errors.New("down")
+	})
+	client, cleanup := startHealthGRPC(t, h)
+	defer cleanup()
+	resp, err := client.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if resp.Status != grpc_health_v1.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("grpc status = %v, want NOT_SERVING", resp.Status)
 	}
 }

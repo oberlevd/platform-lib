@@ -42,6 +42,9 @@ func TestLoggerBasicFields(t *testing.T) {
 	if entry["user_id"].(float64) != 42 {
 		t.Errorf("user_id = %v, want 42", entry["user_id"])
 	}
+	if entry["request_id"] != "req-1" {
+		t.Errorf("request_id = %v, want req-1", entry["request_id"])
+	}
 }
 
 func TestLoggerRedactsSecrets(t *testing.T) {
@@ -140,5 +143,90 @@ func TestRequestIDRoundTrip(t *testing.T) {
 	// Пустой контекст без request_id.
 	if empty := RequestIDFromContext(context.Background()); empty != "" {
 		t.Errorf("expected empty string for context without request id, got %q", empty)
+	}
+}
+
+func TestLoggerAutoInjectsRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Config{
+		Service: "svc-test",
+		Version: "abc123",
+		Env:     "test",
+		Level:   slog.LevelInfo,
+		Output:  &buf,
+	})
+	ctx := WithRequestID(context.Background(), "auto-req-99")
+	l.Info(ctx, "with request id", "user_id", 7)
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("output is not valid JSON: %v\nraw: %s", err, buf.String())
+	}
+	if entry["request_id"] != "auto-req-99" {
+		t.Fatalf("request_id = %v, want auto-req-99", entry["request_id"])
+	}
+	if entry["user_id"].(float64) != 7 {
+		t.Fatalf("user_id = %v, want 7", entry["user_id"])
+	}
+}
+
+func TestLoggerDoesNotDuplicateRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Config{
+		Service: "svc-test",
+		Version: "abc123",
+		Env:     "test",
+		Level:   slog.LevelInfo,
+		Output:  &buf,
+	})
+	ctx := WithRequestID(context.Background(), "from-ctx")
+	l.Info(ctx, "explicit", "request_id", "explicit-id")
+	raw := buf.String()
+	if strings.Count(raw, `"request_id"`) > 1 {
+		t.Fatalf("request_id duplicated in log: %s", raw)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if entry["request_id"] != "explicit-id" {
+		t.Fatalf("request_id = %v, want explicit-id", entry["request_id"])
+	}
+}
+
+func TestLoggerNoRequestIDWhenAbsent(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Config{
+		Service: "svc-test",
+		Version: "abc123",
+		Env:     "test",
+		Level:   slog.LevelInfo,
+		Output:  &buf,
+	})
+	l.Info(context.Background(), "no id")
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if _, ok := entry["request_id"]; ok {
+		t.Fatalf("request_id should be absent, got %v", entry["request_id"])
+	}
+}
+
+func TestLoggerErrorWithoutErrOmitsErrorField(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Config{
+		Service: "svc-test",
+		Version: "abc123",
+		Env:     "test",
+		Level:   slog.LevelInfo,
+		Output:  &buf,
+	})
+	l.Error(context.Background(), "soft fail", nil, "code", 1)
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if _, ok := entry["error"]; ok {
+		t.Fatalf("error field should be absent when err is nil, got %v", entry["error"])
 	}
 }
