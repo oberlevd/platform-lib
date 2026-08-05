@@ -7,13 +7,12 @@ import (
 	"context"
 	"time"
 
+	"github.com/oberlevd/platform-lib/logger"
+	platformmetrics "github.com/oberlevd/platform-lib/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-
-	"github.com/oberlevd/platform-lib/logger"
-	platformmetrics "github.com/oberlevd/platform-lib/metrics"
 )
 
 // RequestIDUnaryInterceptor генерирует request_id (если он не пришёл
@@ -172,4 +171,31 @@ func requestIDFromIncomingMetadata(ctx context.Context) string {
 		return ""
 	}
 	return values[0]
+}
+
+// ChainStream - stream-аналог Chain. Порядок тот же:
+// RequestID → Logging → Metrics → Recovery.
+//
+// Unary и stream в gRPC - разные ServerOption, поэтому в main:
+//
+//	grpc.NewServer(grpcmw.Chain(log, m), grpcmw.ChainStream(log, m))
+//
+// или короче:
+//
+//	grpc.NewServer(grpcmw.ServerOptions(log, m)...)
+func ChainStream(base *logger.Logger, m *platformmetrics.RED) grpc.ServerOption {
+	return grpc.ChainStreamInterceptor(
+		RequestIDStreamInterceptor(),
+		LoggingStreamInterceptor(base),
+		MetricsStreamInterceptor(m),
+		RecoveryStreamInterceptor(),
+	)
+}
+
+// ServerOptions возвращает unary + stream chain для grpc.NewServer.
+func ServerOptions(base *logger.Logger, m *platformmetrics.RED) []grpc.ServerOption {
+	return []grpc.ServerOption{
+		Chain(base, m),
+		ChainStream(base, m),
+	}
 }

@@ -193,9 +193,6 @@ func TestRedactedIgnoresFieldsWithoutEnvTag(t *testing.T) {
 	}
 }
 
-// --- Тесты на рекурсию во вложенные структуры (баг, который был найден
-// и исправлен: раньше Load полностью игнорировал такие поля). ---
-
 type nestedDBConfig struct {
 	Host     string `env:"TEST_NESTED_DB_HOST,required"`
 	Password string `env:"TEST_NESTED_DB_PASSWORD,required" redact:"true"`
@@ -204,7 +201,7 @@ type nestedDBConfig struct {
 
 type outerConfigWithNested struct {
 	ServiceName string         `env:"TEST_OUTER_SERVICE_NAME" default:"svc"`
-	DB          nestedDBConfig // без своего env-тега - должно обработаться рекурсивно
+	DB          nestedDBConfig
 }
 
 func TestLoadRecursesIntoNestedStruct(t *testing.T) {
@@ -228,8 +225,6 @@ func TestLoadRecursesIntoNestedStruct(t *testing.T) {
 }
 
 func TestLoadNestedStructRequiredFieldMissing(t *testing.T) {
-	// TEST_NESTED_DB_HOST/PASSWORD не заданы - required-поле внутри
-	// вложенной структуры должно всё равно приводить к ошибке Load.
 	var cfg outerConfigWithNested
 	err := Load(&cfg)
 	if err == nil {
@@ -256,5 +251,129 @@ func TestRedactedRecursesIntoNestedStruct(t *testing.T) {
 	}
 	if out["TEST_NESTED_DB_PASSWORD"] == "hunter2" {
 		t.Fatal("Redacted() leaked the nested password value")
+	}
+}
+
+type testConfigFloat struct {
+	Ratio float64 `env:"TEST_RATIO" default:"0.5"`
+}
+
+func TestLoadFloat64Default(t *testing.T) {
+	var cfg testConfigFloat
+	if err := Load(&cfg); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Ratio != 0.5 {
+		t.Errorf("Ratio = %v, want default 0.5", cfg.Ratio)
+	}
+}
+
+func TestLoadFloat64Override(t *testing.T) {
+	t.Setenv("TEST_RATIO", "1.25")
+	var cfg testConfigFloat
+	if err := Load(&cfg); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Ratio != 1.25 {
+		t.Errorf("Ratio = %v, want 1.25", cfg.Ratio)
+	}
+}
+
+func TestLoadFloat64Invalid(t *testing.T) {
+	t.Setenv("TEST_RATIO", "not-a-float")
+	var cfg testConfigFloat
+	err := Load(&cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid float env value, got nil")
+	}
+}
+
+type testConfigJSONRequired struct {
+	Routes map[string]string `env:"TEST_JSON_REQUIRED_ROUTES,required" env_json:"true"`
+}
+
+func TestLoadJSONRequiredMissing(t *testing.T) {
+	var cfg testConfigJSONRequired
+	err := Load(&cfg)
+	if err == nil {
+		t.Fatal("expected error for missing required env_json field, got nil")
+	}
+}
+
+func TestLoadJSONRequiredPresent(t *testing.T) {
+	t.Setenv("TEST_JSON_REQUIRED_ROUTES", `{"a":"b"}`)
+	var cfg testConfigJSONRequired
+	if err := Load(&cfg); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Routes["a"] != "b" {
+		t.Errorf("Routes[a] = %q, want b", cfg.Routes["a"])
+	}
+}
+
+type testConfigJSONDefault struct {
+	Tags []string `env:"TEST_JSON_DEFAULT_TAGS" env_json:"true" default:"[\"x\",\"y\"]"`
+}
+
+func TestLoadJSONDefault(t *testing.T) {
+	var cfg testConfigJSONDefault
+	if err := Load(&cfg); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(cfg.Tags) != 2 || cfg.Tags[0] != "x" || cfg.Tags[1] != "y" {
+		t.Errorf("Tags = %v, want [x y]", cfg.Tags)
+	}
+}
+
+type testConfigUnsupported struct {
+	// uint без env_json - Load должен вернуть явную ошибку, а не молча
+	// оставить zero value.
+	Count uint `env:"TEST_UNSUPPORTED_UINT"`
+}
+
+func TestLoadUnsupportedType(t *testing.T) {
+	t.Setenv("TEST_UNSUPPORTED_UINT", "10")
+	var cfg testConfigUnsupported
+	err := Load(&cfg)
+	if err == nil {
+		t.Fatal("expected error for unsupported field type without env_json, got nil")
+	}
+}
+
+func TestLoadInvalidDuration(t *testing.T) {
+	t.Setenv("TEST_MSSQL_HOST", "h")
+	t.Setenv("TEST_MSSQL_PASSWORD", "p")
+	t.Setenv("TEST_REQUEST_TIMEOUT", "not-a-duration")
+	var cfg testConfig
+	err := Load(&cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid duration, got nil")
+	}
+}
+
+func TestLoadInvalidBool(t *testing.T) {
+	t.Setenv("TEST_MSSQL_HOST", "h")
+	t.Setenv("TEST_MSSQL_PASSWORD", "p")
+	t.Setenv("TEST_DEBUG", "not-a-bool")
+	var cfg testConfig
+	err := Load(&cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid bool, got nil")
+	}
+}
+
+func TestRedactedJSONFieldUsesGoFormatting(t *testing.T) {
+	t.Setenv("TEST_MSSQL_ROUTES", `{"orders":"mssql-orders-01"}`)
+	var cfg testConfigJSON
+	if err := Load(&cfg); err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	out := Redacted(&cfg)
+	val, ok := out["TEST_MSSQL_ROUTES"]
+	if !ok {
+		t.Fatal("expected TEST_MSSQL_ROUTES in Redacted output")
+	}
+	if val == "" {
+		t.Fatal("expected non-empty Redacted value for env_json field")
 	}
 }

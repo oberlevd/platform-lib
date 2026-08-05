@@ -112,24 +112,47 @@ func (l *Logger) With(args ...any) *Logger {
 }
 
 func (l *Logger) Debug(ctx context.Context, msg string, args ...any) {
+	args = prependRequestID(ctx, args)
 	l.base.DebugContext(ctx, msg, args...)
 }
 
 func (l *Logger) Info(ctx context.Context, msg string, args ...any) {
+	args = prependRequestID(ctx, args)
 	l.base.InfoContext(ctx, msg, args...)
 }
 
 func (l *Logger) Warn(ctx context.Context, msg string, args ...any) {
+	args = prependRequestID(ctx, args)
 	l.base.WarnContext(ctx, msg, args...)
 }
 
 // Error логирует ошибку. err передаётся отдельным аргументом и кладётся
 // в поле "error" как строка - если err == nil, поле не добавляется.
 func (l *Logger) Error(ctx context.Context, msg string, err error, args ...any) {
+	args = prependRequestID(ctx, args)
 	if err != nil {
 		args = append(args, slog.String("error", err.Error()))
 	}
 	l.base.ErrorContext(ctx, msg, args...)
+}
+
+// prependRequestID подмешивает request_id из контекста в аргументы лога,
+// если он есть и ещё не передан явно. Так HTTP-хендлеры и фоновые задачи
+// не обязаны каждый раз писать "request_id" вручную.
+func prependRequestID(ctx context.Context, args []any) []any {
+	id := RequestIDFromContext(ctx)
+	if id == "" {
+		return args
+	}
+	for i := 0; i+1 < len(args); i += 2 {
+		if key, ok := args[i].(string); ok && key == "request_id" {
+			return args
+		}
+	}
+	out := make([]any, 0, len(args)+2)
+	out = append(out, "request_id", id)
+	out = append(out, args...)
+	return out
 }
 
 // defaultLogger - фолбэк для случаев, когда контекст без логгера.
