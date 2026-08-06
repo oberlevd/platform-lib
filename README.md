@@ -11,6 +11,7 @@
 | healthcheck | "/healthz, /readyz, gRPC health (Check)"                                      |
 | lifecycle   | SIGTERM/SIGINT → упорядоченный shutdown                                       |
 | mssql       | "пул, retry на старте, SafeDSN, checker для readiness"                        |
+| mongo       | "клиент, retry на старте, SafeURI, checker для readiness (аналог mssql)"      |
 | lint-config | общий .golangci.yml                                                           |
 | example     | "минимальный сервис, склеивающий всё вместе"                                  |
 
