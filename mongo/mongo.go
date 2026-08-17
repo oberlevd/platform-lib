@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/url"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -99,6 +100,36 @@ type Config struct {
 	RetryBaseDelay time.Duration `env:"MONGO_CONNECT_RETRY_BASE_DELAY" default:"200ms"`
 	// RetryMaxDelay - верхняя граница задержки между попытками.
 	RetryMaxDelay time.Duration `env:"MONGO_CONNECT_RETRY_MAX_DELAY" default:"2s"`
+
+	// ReadPreference - режим чтения для ВСЕХ запросов через Client
+	// (Collection().Find()/Aggregate()/... унаследуют его по умолчанию,
+	// если явно не переопределить на конкретном вызове через
+	// options.Find().SetReadPreference(...)). Допустимые значения:
+	// "primary" (по умолчанию, если поле не задано - сохраняет прежнее
+	// поведение пакета до появления этого поля), "primaryPreferred",
+	// "secondary", "secondaryPreferred", "nearest". Подробнее о разнице
+	// между "secondary" и "secondaryPreferred" - см. readPreferenceFromString.
+	//
+	// НЕ влияет на операции записи (insert/update/delete) - они всегда
+	// идут на primary независимо от этого поля, это требование
+	// протокола репликации MongoDB, а не что-то, что можно настроить.
+	//
+	// НЕ влияет на Ping в Open/Checker - они всегда проверяют именно
+	// primary, потому что readiness-проба должна честно отражать
+	// доступность узла, способного принимать запись.
+	ReadPreference string `env:"MONGO_READ_PREFERENCE" default:"primary"`
+
+	// ReplicaSetSeeds - дополнительные seed-хосты (host:port) реплика-сета
+	// помимо Host/Port. После первого успешного подключения драйвер сам
+	// обнаруживает остальных членов сета через SDAM (см. комментарий к
+	// Host выше) - этого достаточно в подавляющем большинстве случаев.
+	// ReplicaSetSeeds нужен только для узкого случая: снизить риск, что
+	// именно единственный узел из Host окажется недоступен в момент
+	// самого первого запуска сервиса (когда топология ещё не обнаружена
+	// и подключиться не к кому). Формат значения - список через запятую:
+	// "mongo2.internal:27017,mongo3.internal:27017". Можно оставить
+	// пустым - тогда поведение не отличается от версии пакета без этого поля.
+	ReplicaSetSeeds string `env:"MONGO_REPLICA_SET_SEEDS"`
 }
 
 func (c Config) effectiveConnectTimeout() time.Duration {
@@ -153,13 +184,67 @@ func (c Config) effectiveDatabase() string {
 	return c.AuthDB
 }
 
+// readPreferenceFromString парсит строковое значение Config.ReadPreference
+// в *readpref.ReadPref. Пустая строка трактуется как "primary" - то же
+// поведение, что было в пакете до появления этого поля (raw *mongo.Client
+// без явного read preference в опциях по умолчанию читает с primary).
+//
+// Разница secondary vs secondaryPreferred важна и осознанна:
+//   - "secondary" - ЖЁСТКО требует secondary; если ни одного доступного
+//     secondary нет (например, реплика-сет деградировал до одного узла),
+//     операция вернёт ошибку, а не тихо уйдёт на primary.
+//   - "secondaryPreferred" - предпочитает secondary, но если ни одного
+//     нет, читает с primary вместо ошибки. Для большинства поисковых
+//     API это безопаснее (лучше отдать чуть более нагруженный ответ с
+//     primary, чем 500 из-за временной недоступности secondary) -
+//     рекомендуемое значение по умолчанию для read-only сервисов, где
+//     важна именно разгрузка primary, а не результат конкретной пробы.
+func readPreferenceFromString(s string) (*readpref.ReadPref, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "primary":
+		return readpref.Primary(), nil
+	case "primarypreferred":
+		return readpref.PrimaryPreferred(), nil
+	case "secondary":
+		return readpref.Secondary(), nil
+	case "secondarypreferred":
+		return readpref.SecondaryPreferred(), nil
+	case "nearest":
+		return readpref.Nearest(), nil
+	default:
+		return nil, fmt.Errorf("mongo: unknown MONGO_READ_PREFERENCE value %q (expected one of: primary, primaryPreferred, secondary, secondaryPreferred, nearest)", s)
+	}
+}
+
+// replicaSetSeeds разбирает Config.ReplicaSetSeeds ("host1:port1,host2:port2")
+// в срез строк host:port. Пустая строка даёт пустой срез - не ошибка.
+func (c Config) replicaSetSeeds() []string {
+	raw := strings.TrimSpace(c.ReplicaSetSeeds)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	seeds := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			seeds = append(seeds, p)
+		}
+	}
+	return seeds
+}
+
 // uri собирает connection string в формате, рекомендованном driver'ом:
-// mongodb://user:password@host:port/?authSource=...&...
+// mongodb://user:password@host1:port1,host2:port2,.../?authSource=...&...
+// Дополнительные хосты (Config.ReplicaSetSeeds) добавляются как
+// дополнительные seed-точки - см. комментарий к полю.
 func (c Config) uri() string {
+	hosts := append([]string{fmt.Sprintf("%s:%d", c.Host, c.Port)}, c.replicaSetSeeds()...)
+
 	u := url.URL{
 		Scheme: "mongodb",
 		User:   url.UserPassword(c.User, c.Password),
-		Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
+		Host:   strings.Join(hosts, ","),
 		Path:   "/",
 	}
 	q := url.Values{}
@@ -184,6 +269,7 @@ func (c Config) SafeURI() string {
 type Client struct {
 	raw *mongo.Client
 	db  *mongo.Database
+	rp  *readpref.ReadPref
 }
 
 // Raw возвращает исходный *mongo.Client - на случай, если сервису
@@ -205,6 +291,15 @@ func (c *Client) Collection(name string) *mongo.Collection {
 	return c.db.Collection(name)
 }
 
+// ReadPreference возвращает read preference, сконфигурированный через
+// Config.ReadPreference при Open (по умолчанию - primary). Репозитории
+// могут переиспользовать это значение, чтобы явно продублировать его на
+// конкретном запросе через options.Find().SetReadPreference(client.ReadPreference()),
+// не хардкодя строку "secondaryPreferred" в каждом месте кода отдельно.
+func (c *Client) ReadPreference() *readpref.ReadPref {
+	return c.rp
+}
+
 // Close закрывает соединение с MongoDB. Сигнатура намеренно совпадает
 // с platform-lib/lifecycle.ShutdownFunc (func(context.Context) error),
 // поэтому Client можно зарегистрировать в lifecycle.Manager напрямую,
@@ -218,9 +313,10 @@ func (c *Client) Close(ctx context.Context) error {
 
 // Open открывает клиент к MongoDB согласно cfg, настраивает лимиты пула
 // и проверяет, что соединение реально устанавливается (Ping с
-// readpref.Primary), с ретраями на транзиентные сбои: MongoDB может
-// быть недоступна короткое время (файловер реплика-сета, рестарт пода
-// с БД, миграция) - вместо падения сервиса с первой попытки Open
+// readpref.Primary - именно Primary независимо от cfg.ReadPreference,
+// см. комментарий к полю), с ретраями на транзиентные сбои: MongoDB
+// может быть недоступна короткое время (файловер реплика-сета, рестарт
+// пода с БД, миграция) - вместо падения сервиса с первой попытки Open
 // переживает такие паузы согласно cfg.RetryAttempts.
 //
 // Каждая попытка ограничена cfg.effectiveConnectTimeout() ИЛИ дедлайном
@@ -233,11 +329,17 @@ func (c *Client) Close(ctx context.Context) error {
 // grpcmw - см. предупреждение об идемпотентности в grpcmw/client.go):
 // Ping не мутирует данные, поэтому здесь нет аналога WithoutRetry.
 func Open(ctx context.Context, cfg Config) (*Client, error) {
+	rp, err := readPreferenceFromString(cfg.ReadPreference)
+	if err != nil {
+		return nil, err
+	}
+
 	clientOpts := options.Client().
 		ApplyURI(cfg.uri()).
 		SetConnectTimeout(cfg.effectiveConnectTimeout()).
 		SetMaxPoolSize(cfg.effectiveMaxPoolSize()).
-		SetMinPoolSize(cfg.effectiveMinPoolSize())
+		SetMinPoolSize(cfg.effectiveMinPoolSize()).
+		SetReadPreference(rp)
 
 	raw, err := mongo.Connect(clientOpts)
 	if err != nil {
@@ -252,6 +354,12 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, perAttemptTimeout)
+		// Ping всегда на Primary, независимо от cfg.ReadPreference:
+		// readiness-проверка на старте сервиса должна убедиться, что
+		// реплика-сет в принципе работоспособен (то есть у него есть
+		// primary), а не только что secondary отвечает - деградировавший
+		// сет без primary не может принимать запись, и это достаточно
+		// серьёзная проблема, чтобы не запускать сервис вовсе.
 		lastErr = raw.Ping(attemptCtx, readpref.Primary())
 		cancel()
 
@@ -259,6 +367,7 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 			return &Client{
 				raw: raw,
 				db:  raw.Database(cfg.effectiveDatabase()),
+				rp:  rp,
 			}, nil
 		}
 		if attempt == attempts {
