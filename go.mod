@@ -6,7 +6,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.10.0
 	github.com/prometheus/client_golang v1.24.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.1
 )
 
 require (
